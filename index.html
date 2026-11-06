@@ -122,6 +122,14 @@ td.n{font-family:var(--f-mono);white-space:nowrap}
 .isteps li.on button::before{color:var(--brass)}
 .isteps button:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
 .hgrid{display:grid;grid-template-columns:auto repeat(4,minmax(0,1fr));gap:6px;align-items:center;font-size:12px}
+.hgrid.three{grid-template-columns:auto repeat(3,minmax(0,1fr))}
+.bview{position:relative;height:250px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--vp);margin-bottom:10px}
+#bgl{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.btags{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.bhint{position:absolute;left:8px;bottom:6px;font-size:11px;color:var(--muted);pointer-events:none}
+.binfo{font-size:13px;line-height:1.45;margin:10px 0;min-height:4.4em}
+.binfo b{font-weight:600}
+.bchk{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--muted);margin-top:10px;cursor:pointer}
 .hgrid .h{color:var(--muted);text-align:center;font-size:11.5px}
 .hgrid .r{color:var(--muted);font-size:11.5px;padding-right:4px}
 .hgrid .btn{padding:7px 0;text-align:center}
@@ -189,6 +197,19 @@ td.n{font-family:var(--f-mono);white-space:nowrap}
       <div class="card">
         <p class="eyebrow">Hinge views</p>
         <div class="hgrid" id="hgrid" role="group" aria-label="Hinge close-ups"></div>
+      </div>
+
+      <div class="card">
+        <p class="eyebrow">Brackets</p>
+        <div class="bview"><canvas id="bgl" aria-label="The selected bracket in 3D"></canvas><div class="btags" id="btags"></div><span class="bhint">Drag to turn, scroll to zoom</span></div>
+        <div class="hgrid three" id="bgrid" role="group" aria-label="Choose a bracket"></div>
+        <p class="binfo" id="binfo">Loading the brackets…</p>
+        <div class="seqrow">
+          <button class="btn" id="b-above">From above</button>
+          <button class="btn" id="b-below">From below</button>
+          <button class="btn" id="b-find">Show it in the model</button>
+        </div>
+        <label class="bchk"><input type="checkbox" id="b-hw" checked> Show screws, washers and pivot pins</label>
       </div>
 
       <div class="card plan">
@@ -385,6 +406,7 @@ if(renderer){
       if(dm) DOORS[+dm[1]-1].nodes.push(o);
     });
     collectParts(root);
+    buildBrackets(root);
     loaded=true; document.getElementById('loading').hidden=true; dirty=true;
   };
   const onErr=()=>{ document.getElementById('loading').textContent='The model file did not load. Reload the page to try again.'; };
@@ -562,6 +584,76 @@ function placeTags(){
   g.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 }
 
+/* ---------- bracket viewer: one pivot plate at a time, with its screws, washers and pins ---------- */
+const bcanvas=document.getElementById('bgl'), bhost=bcanvas.parentElement, btags=document.getElementById('btags'), binfo=document.getElementById('binfo');
+let br=null; try{ br=new THREE.WebGLRenderer({canvas:bcanvas,antialias:true}); }catch(e){ binfo.textContent='This browser could not start the bracket viewer.'; }
+const bscene=new THREE.Scene(), bcam=new THREE.PerspectiveCamera(30,1,0.05,400);
+let bctl=null, bdirty=true;
+const BM={ bronze:new THREE.MeshStandardMaterial({color:0xb48a52,metalness:0.85,roughness:0.4,side:THREE.DoubleSide}),
+  steel:new THREE.MeshStandardMaterial({color:0xc7cacf,metalness:0.9,roughness:0.3}),
+  ptfe:new THREE.MeshStandardMaterial({color:0xf3f0e8,roughness:0.6}),
+  edge:new THREE.LineBasicMaterial({color:0x3b2b16,transparent:true,opacity:0.6}) };
+if(br){ br.setPixelRatio(Math.min(devicePixelRatio,2)); br.outputColorSpace=THREE.SRGBColorSpace; br.toneMapping=THREE.ACESFilmicToneMapping;
+  const pm=new THREE.PMREMGenerator(br); bscene.environment=pm.fromScene(new RoomEnvironment(br),0.04).texture;
+  bscene.background=new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--vp').trim()||'#d9d2c6');
+  bscene.add(new THREE.HemisphereLight(0xffffff,0x8a8070,0.7)); const k=new THREE.DirectionalLight(0xffffff,1.5); k.position.set(3,6,5); bscene.add(k);
+  bctl=new OrbitControls(bcam,bcanvas); bctl.enableDamping=true; bctl.addEventListener('change',()=>{ bdirty=true; }); }
+const BRACKETS={}; let bsel=null, bwant='b-1';
+const BNAME={'b-1':'Bottom bracket, left end (door 1)','b0':'Bottom bracket, center (doors 2 and 3)','b1':'Bottom bracket, right end (door 4)',
+             't-1':'Top bracket, left end (door 1)','t0':'Top bracket, center (doors 2 and 3)','t1':'Top bracket, right end (door 4)'};
+const BVIEW={'b-1':'h1b','b0':'h2b','b1':'h4b','t-1':'h1t','t0':'h2t','t1':'h4t'};
+function mixed(v){ const n=Math.round(v*16), w=Math.floor(n/16), r=n%16; if(!r) return w+'"'; let a=r,b=16; while(a%2===0){a/=2;b/=2;} return (w?w+' ':'')+a+'/'+b+'"'; }
+function buildBrackets(root){
+  root.updateMatrixWorld(true); const inv=root.matrixWorld.clone().invert(), parts=[];
+  root.traverse(o=>{ if(!o.isMesh) return; const n=o.userData.name||o.name;
+    const kind=n.startsWith('plate_')?'plate':n.startsWith('screw_')?'screw':n.startsWith('washer_')?'washer':/^door\d_pin/.test(n)?'pin':null; if(!kind) return;
+    const g=o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv,o.matrixWorld)); g.computeBoundingBox(); parts.push({kind,g}); });
+  for(const p of parts.filter(q=>q.kind==='plate')){
+    const bb=p.g.boundingBox, c=bb.getCenter(new THREE.Vector3()), s=bb.getSize(new THREE.Vector3());
+    const key=(c.y<70?'b':'t')+(Math.abs(c.x)<5?0:Math.sign(c.x));
+    const holder=new THREE.Group(), grp=new THREE.Group(), hw=new THREE.Group();
+    grp.add(new THREE.Mesh(p.g,BM.bronze), new THREE.LineSegments(new THREE.EdgesGeometry(p.g,25),BM.edge));
+    let screws=0, pins=0;
+    for(const q of parts){ if(q.kind==='plate') continue; const qc=q.g.boundingBox.getCenter(new THREE.Vector3());
+      if(qc.x>bb.min.x-0.05&&qc.x<bb.max.x+0.05&&qc.z>bb.min.z-0.05&&qc.z<bb.max.z+0.05&&Math.abs(qc.y-c.y)<1.3){
+        hw.add(new THREE.Mesh(q.g,q.kind==='washer'?BM.ptfe:BM.steel)); if(q.kind==='screw') screws++; if(q.kind==='pin') pins++; } }
+    grp.add(hw); grp.position.copy(c).negate(); holder.add(grp); holder.visible=false; bscene.add(holder);
+    BRACKETS[key]={holder,hw,size:s,screws,pins,low:c.y<70};
+  }
+  selectBracket(bwant);
+}
+function fitBracket(dir){ const B=BRACKETS[bsel]; if(!B||!bctl) return;
+  const sph=new THREE.Box3().setFromObject(B.holder).getBoundingSphere(new THREE.Sphere()), d=sph.radius/Math.sin(THREE.MathUtils.degToRad(bcam.fov/2))*0.92;
+  const v=new THREE.Vector3(0.5,dir==='below'?-0.72:0.72,0.8).normalize();
+  bcam.position.copy(sph.center).addScaledVector(v,d); bctl.target.copy(sph.center); bcam.lookAt(sph.center); bctl.update(); bdirty=true; }
+function selectBracket(key){
+  bwant=key; const B=BRACKETS[key]; document.querySelectorAll('[data-br]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.br===key)); if(!B) return;
+  for(const k in BRACKETS) BRACKETS[k].holder.visible=k===key; bsel=key;
+  const s=B.size, where=B.low?'ChiLab supplies it; Benchmark builds it into the underside of the upper box.':'ChiLab sets it into the top of the cabinet on site.';
+  binfo.innerHTML=`<b>${BNAME[key]}</b><br>Bronze, ${mixed(s.x)} wide × ${mixed(s.z)} deep × ${mixed(s.y)} thick. ${B.screws} wood screws, ${B.pins===1?'1 pivot pin':B.pins+' pivot pins'}. ${where}`;
+  fitBracket(B.low?'below':'above');                   // start on the face the screws go in from
+}
+{ const g=document.getElementById('bgrid');
+  g.insertAdjacentHTML('beforeend','<span></span>'+['Left end','Center','Right end'].map(h=>`<span class="h">${h}</span>`).join(''));
+  for(const [lab,s] of [['Top','t'],['Bottom','b']])
+    g.insertAdjacentHTML('beforeend',`<span class="r">${lab}</span>`+[[-1,'Door 1'],[0,'Doors 2, 3'],[1,'Door 4']].map(([x,d])=>`<button class="btn" data-br="${s}${x}" aria-label="${lab} bracket, ${d}">${d}</button>`).join(''));
+  g.querySelectorAll('[data-br]').forEach(b=>b.addEventListener('click',()=>selectBracket(b.dataset.br)));
+  document.getElementById('b-above').addEventListener('click',()=>fitBracket('above'));
+  document.getElementById('b-below').addEventListener('click',()=>fitBracket('below'));
+  document.getElementById('b-find').addEventListener('click',()=>{ if(!bsel) return; setView(BVIEW[bsel]);
+    const r=host.getBoundingClientRect(); if(r.bottom<0||r.top>innerHeight) host.scrollIntoView({behavior:reduced?'auto':'smooth',block:'center'}); });
+  document.getElementById('b-hw').addEventListener('change',e=>{ for(const k in BRACKETS) BRACKETS[k].hw.visible=e.target.checked; bdirty=true; });
+}
+const roomTag=document.createElement('div'); roomTag.className='tag part r'; roomTag.innerHTML='<i></i><span>Room side</span>'; roomTag.hidden=true; btags.appendChild(roomTag);
+function bresize(){ if(!br) return; const r=bhost.getBoundingClientRect(); br.setSize(r.width,r.height,false); bcam.aspect=r.width/Math.max(1,r.height); bcam.updateProjectionMatrix(); bdirty=true; }
+new ResizeObserver(bresize).observe(bhost); bresize();
+function renderBracket(){
+  if(!br||!bsel) return; if(bctl.update()) bdirty=true; if(!bdirty) return;
+  br.render(bscene,bcam); bdirty=false;
+  const B=BRACKETS[bsel], r=bhost.getBoundingClientRect(); _v.set(0,0,B.size.z/2+0.05).project(bcam);
+  const x=(_v.x+1)/2*r.width, y=(1-_v.y)/2*r.height; roomTag.hidden=_v.z>1; roomTag.style.transform=`translate(${Math.round(x-3.5)}px,${Math.round(y-roomTag.offsetHeight/2)}px)`;
+}
+
 setView(QS.get('view')||'three',true);
 
 /* ---------- installation sequence ---------- */
@@ -647,6 +739,7 @@ function tick(now){
   if(controls){ const moved=controls.update(); if(moved) dirty=true; }
   if(renderer&&dirty){ renderer.render(scene,camera); dirty=false; }
   placeTags();
+  renderBracket();
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
