@@ -20,14 +20,11 @@
   --f-body:"Hanken Grotesk","Helvetica Neue",Arial,sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --ground:#14120f; --sheet:#1c1915; --ink:#ece5d8; --muted:#a2988a; --line:#332e27;
-  --brass:#d6b26a; --brass-fill:#a88443; --oak:#8a7354; --glass:#b39270;
-  --ok:#62b884; --close:#c9b46a; --warn:#e2a24a; --bad:#e6735f; --vp:#24201b; color-scheme:dark}}
 :root[data-theme="dark"]{
   --ground:#14120f; --sheet:#1c1915; --ink:#ece5d8; --muted:#a2988a; --line:#332e27;
   --brass:#d6b26a; --brass-fill:#a88443; --oak:#8a7354; --glass:#b39270;
   --ok:#62b884; --close:#c9b46a; --warn:#e2a24a; --bad:#e6735f; --vp:#24201b; color-scheme:dark}
+:root{color-scheme:light}
 html,body{margin:0}
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
