@@ -440,7 +440,7 @@ if(renderer){
   };
   const onErr=()=>{ document.getElementById('loading').textContent='The model file did not load. Reload the page to try again.'; };
   (async()=>{ try{
-    const res=await fetch('hutch.glb.gz.txt?v=20261106m');   // bump when the model file changes so browsers don't reuse an old copy if(!res.ok) throw new Error(res.status);
+    const res=await fetch('hutch.glb.gz.txt?v=20261106n');   // bump when the model file changes so browsers don't reuse an old copy if(!res.ok) throw new Error(res.status);
     const b64=(await res.text()).replace(/\s+/g,'');
     const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
     const buf=await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
