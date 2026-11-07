@@ -158,6 +158,7 @@ td.n{font-family:var(--f-mono);white-space:nowrap}
         <button class="btn" data-view="plan">Plan</button>
         <button class="btn" data-view="secB">Bottom hinge hardware</button>
         <button class="btn" data-view="secT">Top hinge hardware</button>
+        <button class="btn" data-view="glz">Glazing bar</button>
       </div>
       <div class="tags" id="tags" aria-live="polite"></div>
       <div class="caption">
@@ -230,7 +231,7 @@ td.n{font-family:var(--f-mono);white-space:nowrap}
   <section class="notes">
     <div class="card">
       <h2>The doors</h2>
-      <p>Four doors, each a solid brass frame around 1/8" bronze-tinted glass, about 56 lb. The glass sits on small blocks and black foam tape and is held from the back by a removable brass bar, so it can be changed on site. Doors 1 and 4 pivot at the outer ends of the hutch; doors 2 and 3 pivot side by side at the center and open away from each other. Each door turns on pins built into its frame, set in bronze plates at the top and bottom of the cabinet.</p>
+      <p>Four doors, each a solid brass frame around 1/8" bronze-tinted glass, about 56 lb. The glass sits on two small plastic setting strips, cushioned by black foam tape, and is held from the back by a removable brass bar, so it can be changed on site. The Glazing bar view shows the bar and its screws. Doors 1 and 4 pivot at the outer ends of the hutch; doors 2 and 3 pivot side by side at the center and open away from each other. Each door turns on pins built into its frame, set in bronze plates at the top and bottom of the cabinet.</p>
       <p>Closed, the doors keep a 1/4" gap between them and sit 1/8" in front of the cabinet. The readout shows the smallest gap anywhere on the doors at the angles you set.</p>
     </div>
 
@@ -421,12 +422,12 @@ if(renderer){
     root.traverse(o=>{ const n=o.userData.name||o.name; if(o.isMesh&&/^wood_end/.test(n)){ const b=new THREE.Box3().setFromObject(o); endPanels.push({o,base:o.position.clone(),dir:Math.sign(b.min.x+b.max.x)}); } });
     root.traverse(o=>{ if(!o.isMesh) return; const n=o.userData.name||o.name.replace(/_\d+$/,''); o.castShadow=true; o.receiveShadow=true;
       if(!o.geometry.attributes.normal){ if(o.geometry.index) o.geometry=o.geometry.toNonIndexed(); o.geometry.computeVertexNormals(); }
-      const dm=n.match(/^door(\d)_/);
+      const dm=n.match(/^door(\d)_/), gk=(n.match(/^door\d_([a-z]+)/)||[])[1];   // glazing parts carry a number: door2_bar_1005
       if(n.startsWith('wood_')) o.material=M.oak;
-      else if(dm && (n.endsWith('_frame')||n.endsWith('_bar'))) o.material=doorMats[+dm[1]];     // removable glazing bar matches the frame
-      else if(n.endsWith('_tape')) o.material=M.gtape;
-      else if(n.endsWith('_block')) o.material=M.gblock;
-      else if(n.endsWith('_gscrew')) o.material=M.steel;
+      else if(dm && (n.endsWith('_frame')||gk==='bar')) o.material=doorMats[+dm[1]];     // removable glazing bar: solid brass, matches the frame
+      else if(gk==='tape') o.material=M.gtape;
+      else if(gk==='block') o.material=M.gblock;
+      else if(gk==='gscrew') o.material=M.steel;
       else if(n.endsWith('_glass')){ o.material=M.glass; o.castShadow=false; }
       else if(n.includes('_pin')||n.startsWith('screw_')||n.startsWith('legscrew_')) o.material=M.steel;
       else if(n.startsWith('plate_')) o.material=M.bronze;
@@ -439,7 +440,7 @@ if(renderer){
   };
   const onErr=()=>{ document.getElementById('loading').textContent='The model file did not load. Reload the page to try again.'; };
   (async()=>{ try{
-    const res=await fetch('hutch.glb.gz.txt?v=20261106k');   // bump when the model file changes so browsers don't reuse an old copy if(!res.ok) throw new Error(res.status);
+    const res=await fetch('hutch.glb.gz.txt?v=20261106m');   // bump when the model file changes so browsers don't reuse an old copy if(!res.ok) throw new Error(res.status);
     const b64=(await res.text()).replace(/\s+/g,'');
     const bin=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
     const buf=await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
@@ -460,7 +461,8 @@ const VIEWS={
   iwbE:{p:[41.6,40.6,27.5],t:[47.3,35.5,16.3]},  // down onto the right-end bottom eye
   itE:{p:[40.2,115.6,29.5],t:[47.0,107.8,15.9]}, // right-end top from above
   secB:{p:[12.9,25.1,37.3],t:[0,35.4,15.9]},       // center bottom pivot from below, front and right, near-isometric lens
-  secT:{p:[12.9,118.1,37.3],t:[0,107.8,15.9]},     // center top pivot from above, front and right
+  secT:{p:[12.9,118.1,37.3],t:[0,107.8,15.9]},
+  glz:{p:[-31.5,44.5,52.0],t:[-47.0,38.6,36.0]},     // back of door 1, opened to 90°, at its bottom free corner     // center top pivot from above, front and right
 };
 const HSIDE={1:1,2:-1,3:1,4:-1};          // look at each pivot from inside its own door
 for(const d of DOORS){ const px=d.pivot[0], s=HSIDE[d.k];
@@ -468,8 +470,8 @@ for(const d of DOORS){ const px=d.pivot[0], s=HSIDE[d.k];
   VIEWS['h'+d.k+'t']={p:[px+s*9,99,37],t:[px+s*0.4,107.4,16.4]}; }
 let camAnim=null;
 function markView(name){ document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===name)); }
-function setView(name,instant){ const v=VIEWS[name]; markView(name); setSection(name==='secB'?'b':name==='secT'?'t':null);
-  camera.fov=name.startsWith('sec')?14:34; camera.updateProjectionMatrix(); const to={p:new THREE.Vector3(...v.p).multiplyScalar(IN),t:new THREE.Vector3(...v.t).multiplyScalar(IN)};
+function setView(name,instant){ const v=VIEWS[name]; markView(name); setSection(name==='secB'?'b':name==='secT'?'t':name==='glz'?'g':null);
+  camera.fov=name.startsWith('sec')?14:name==='glz'?30:34; camera.updateProjectionMatrix(); const to={p:new THREE.Vector3(...v.p).multiplyScalar(IN),t:new THREE.Vector3(...v.t).multiplyScalar(IN)};
   if(instant||reduced||!controls){ camera.position.copy(to.p); controls?.target.copy(to.t); camera.lookAt(to.t); dirty=true; return; }
   camAnim={from:{p:camera.position.clone(),t:controls.target.clone()},to,t0:performance.now(),dur:1100}; }
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
@@ -588,8 +590,29 @@ const TAGS={
   ],
 };
 const tagsEl=document.getElementById('tags'); let section=null, tagEls=[];
+/* glazing bar close-up: door 1 opens to 90°, its bars and #6-32 screws pull back from the frame so the hardware shows */
+const GLZ_PULL={bar:1.2,gscrew:2.6};
+let glzT0=0;
+function door1Open(x,y,z,back){            // a point on closed door 1 (inches) -> where it is with the door at 90°, pulled back by `back`
+  const d=DOORS[0], r=d.sgn*Math.PI/2, px=-47.75, pz=16.625, dx=x-px, dz=(z-back)-pz;
+  return [px+dx*Math.cos(r)+dz*Math.sin(r), y, pz-dx*Math.sin(r)+dz*Math.cos(r)]; }
+function glazingTags(){ return [
+  {at:door1Open(-27.5,35.45,16.125,GLZ_PULL.bar),side:'r',text:'Removable glazing bar, solid brass to match the frame, 3/4" × 1/4". Four pieces per door, mitered at the corners.'},
+  {at:door1Open(-24.625,37.69,16.125,GLZ_PULL.gscrew),side:'l',text:'#6-32 × 1/2" flat head machine screws into tapped holes in the frame. 28 per door: 2" from each corner, about 6 5/16" apart on the rails and 7 1/2" on the stiles.'},
+  {at:door1Open(-25.06,40.5,16.40,0),side:'l',text:'Black foam glazing tape, 1/16", both faces of the glass'},
+  {at:door1Open(-24.85,43.0,16.375,0),side:'l',text:'Door frame, solid brass. The bar sits in a rabbet on the back; take it off and the glass lifts out.'},
+  {at:door1Open(-32.375,35.94,16.45,0),side:'r',text:'1/8" plastic setting strip, 3" long: two under the bottom edge of the glass, at about 1/3 and 2/3 of its width'},
+  {at:door1Open(-34.0,43.0,16.44,0),side:'r',text:'Glass, 1/8" bronze tint. 1/8" air gap to the frame at the sides and top.'},
+]; }
+function glazingPull(f){                   // f: 0 = seated, 1 = pulled back
+  const d=DOORS[0], r=d.sgn*d.angle*Math.PI/180;
+  for(const p of PARTS){ if(p.glz!==1||!(p.kind in GLZ_PULL)) continue; const s=GLZ_PULL[p.kind]*f;
+    p.o.position.set(p.base.x-s*Math.sin(r),p.base.y,p.base.z-s*Math.cos(r)); p.o.visible=true; } }
 function setSection(s){
-  if(s===section) return; section=s;
+  if(s===section) return;
+  if(section==='g') glazingPull(0);
+  section=s;
+  if(s==='g'){ seqOn=false; syncPlay(); presetAnim={from:DOORS.map(d=>d.angle),to:[90,0,0,0],t0:performance.now(),dur:1100}; glzT0=performance.now()+900; TAGS.g=glazingTags(); }
   setContext(s!=='b');                                   // looking up at the bottom plate needs the lower cabinet out of the way
   tagsEl.innerHTML=''; tagEls=[];
   if(s) for(const g of TAGS[s]){ const e=document.createElement('div'); e.className=`tag part ${g.side}`; e.innerHTML=`<i></i><span>${g.text}</span>`; tagsEl.appendChild(e); tagEls.push([e,g]); }
@@ -738,7 +761,7 @@ const ISTEPS=[
   {label:'Doors 1 to 4, frames with the pins built in, lifted and lowered onto the bottom pivots',view:'three',dur:6.0},
   {label:'Center top: thrust washers over the pins, then the top plate from above, 6 screws',view:'it',dur:5.0},
   {label:'End tops: thrust washer over the pin, then the top plate from above, 4 screws (right end shown)',view:'itE',dur:5.0},
-  {label:'Glass: doors open; plastic blocks and black foam tape, the glass in from the back against the front lip, then the four brass glazing bars and their #6-32 screws',view:'three',dur:8.5},
+  {label:'Glass: doors open; two plastic setting strips and black foam tape, the glass in from the back against the front lip, then the four brass glazing bars and their #6-32 screws',view:'three',dur:8.5},
   {label:'Swing check: all four doors to 90° and closed',view:'three',dur:5.5},
 ];
 const SET=2, GLZ=8;                                  // GLZ: the glazing step                                         // the step where the upper box goes onto the lower cabinet
@@ -764,7 +787,7 @@ function collectParts(root){
         const g={block:[[0.14,0.26],4],tapeF:[[0.18,0.3],4],glass:[[0.3,0.52],12],tapeB:[[0.52,0.6],3],bar:[[0.6,0.76],5],gscrew:[[0.76,0.9],2.5]}[kind];
         if(g){ w=g[0]; dist=g[1]; } } }
     const key=`${step}|${kind}|${side}`;
-    (groups[key]=groups[key]||[]).push({o,base:o.position.clone(),step,delta:delta&&new THREE.Vector3(...delta),door,glz,dist,w,x:cx,z:((b.min.z+b.max.z)/2)/IN});
+    (groups[key]=groups[key]||[]).push({o,base:o.position.clone(),step,delta:delta&&new THREE.Vector3(...delta),door,glz,dist,kind,w,x:cx,z:((b.min.z+b.max.z)/2)/IN});
   });
   for(const k in groups){ const g=groups[k].sort((a,b)=>a.x-b.x||a.z-b.z), n=g.length;
     g.forEach((p,i)=>{ const span=p.w[1]-p.w[0], len=n>1?span*0.5:span, a=p.w[0]+(n>1?(span-len)*i/(n-1):0); p.win=[a,a+len]; PARTS.push(p); }); }
@@ -817,6 +840,7 @@ function tick(now){
   else if(presetAnim){ const t=Math.min(1,(now-presetAnim.t0)/presetAnim.dur), e=ease(t); DOORS.forEach((d,i)=>d.angle=presetAnim.from[i]+(presetAnim.to[i]-presetAnim.from[i])*e); if(t>=1) presetAnim=null; dirty=true; }
   if(camAnim){ const t=Math.min(1,(now-camAnim.t0)/camAnim.dur), e=ease(t); camera.position.lerpVectors(camAnim.from.p,camAnim.to.p,e); controls.target.lerpVectors(camAnim.from.t,camAnim.to.t,e); if(t>=1) camAnim=null; dirty=true; }
   for(const d of DOORS){ const r=d.sgn*d.angle*Math.PI/180; for(const n of d.nodes) n.rotation.y=r; }
+  if(section==='g'&&!inst){ glazingPull(ease(Math.max(0,Math.min(1,(now-glzT0)/1200)))); dirty=true; }
   const m=updateReadout();
   stepEl.textContent=inst?`Step ${inst.i+1} of ${ISTEPS.length} · ${ISTEPS[inst.i].label}`:(seqOn||presetAnim?seqLabel+' · ':'')+'closest '+inch(m.v);
   if(controls){ const moved=controls.update(); if(moved) dirty=true; }
